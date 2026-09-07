@@ -131,6 +131,8 @@ The selected upstream is returned in `X-Free-Router-Provider` and
 GET  /health
 GET  /v1/models
 POST /v1/chat/completions
+GET  /v1/usage
+GET  /v1/usage/summary
 ```
 
 `GET /v1/models` returns the route alias, each static provider's `freeModels`,
@@ -142,6 +144,30 @@ force a single provider.
 ```bash
 curl -s http://127.0.0.1:8787/health | jq
 ```
+
+## Usage log (SQLite)
+
+Every successful routed request is recorded in `usage.db` (SQLite, next to
+`config.json`) with timestamp, route, provider, model, and token counts when
+the upstream reports them. Streaming responses that omit usage are stored
+with `null` token counts. Queries:
+
+```bash
+# Last 100 rows (newest first)
+curl -s 'http://127.0.0.1:8787/v1/usage'
+
+# Filters: since, provider, model, route, limit (1-1000), offset
+curl -s 'http://127.0.0.1:8787/v1/usage?provider=gemini&since=24h&limit=50'
+
+# Totals grouped by provider+model
+curl -s 'http://127.0.0.1:8787/v1/usage/summary?since=7d'
+```
+
+`since` accepts relative (`30m`, `6h`, `24h`, `7d`, `2w`) or ISO timestamps;
+invalid values are ignored. Disable the log with `"usage": {"enabled": false}`
+in `config.json`; move it with `usage.dbFile` or `FREE_ROUTER_USAGE_DB`.
+Requires Node >= 22.5 (`node:sqlite`); falls back to `better-sqlite3` if
+installed.
 
 ## Routes
 

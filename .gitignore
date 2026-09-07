@@ -3,4 +3,7 @@
 router.log
 router.pid
 discovered-free-models.json
+usage.db
+usage.db-shm
+usage.db-wal
 node_modules/

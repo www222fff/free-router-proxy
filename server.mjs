@@ -13,6 +13,7 @@ import {
 } from './providers.mjs';
 import { installUpstreamProxy } from './proxy.mjs';
 import { createSecretRedactor } from './redact.mjs';
+import { createUsageStore, resolveSince } from './usage.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -70,6 +71,28 @@ const EVALUATION_ENABLED = evaluationConfig.enabled !== false;
 const EVALUATION_MAX_TOKENS = Number(evaluationConfig.maxTokens || 4000);
 const PINNED_MODELS = new Set(evaluationConfig.pinnedModels || []);
 const secretRedactor = config.redactSecrets === false ? null : createSecretRedactor();
+
+// SQLite usage log: one row per successful routed request.
+// Off (null) only if config.usage.enabled === false or SQLite is unavailable.
+const usageConfig = config.usage || {};
+const USAGE_DB_PATH =
+  process.env.FREE_ROUTER_USAGE_DB ||
+  path.resolve(path.dirname(CONFIG_PATH), usageConfig.dbFile || 'usage.db');
+let usageStore = null;
+try {
+  usageStore = createUsageStore(USAGE_DB_PATH, {
+    enabled: usageConfig.enabled !== false,
+  });
+} catch (error) {
+  console.error(`[${new Date().toISOString()}] usage log disabled: ${error.message}`);
+}
+function recordUsage({ route, provider, model, usage, streaming }) {
+  try {
+    usageStore?.record({ route, provider, model, usage, streaming });
+  } catch (error) {
+    log(`usage log write failed: ${error.message}`);
+  }
+}
 
 const cooldowns = new Map();
 let discoveredModelIds = [];
@@ -807,6 +830,11 @@ async function attemptStream(candidate, body, res, clientSignal) {
   let parserBuffer = '';
   let committed = false;
   let finishReason = '';
+  let streamUsage = null;
+
+  const scanUsage = (payload) => {
+    if (payload?.usage && typeof payload.usage === 'object') streamUsage = payload.usage;
+  };
 
   while (true) {
     let read;
@@ -816,7 +844,7 @@ async function attemptStream(candidate, body, res, clientSignal) {
       cleanup();
       if (committed) {
         res.end();
-        return { ok: true, candidate, interrupted: true };
+        return { ok: true, candidate, interrupted: true, usage: streamUsage };
       }
       return { ok: false, status: 502, reason: String(error), kind: 'serverError' };
     }
@@ -824,6 +852,20 @@ async function attemptStream(candidate, body, res, clientSignal) {
     const bytes = Buffer.from(read.value);
     if (committed) {
       res.write(bytes);
+      parserBuffer += decoder.decode(read.value, { stream: true });
+      const tail = parserBuffer.split('\n');
+      parserBuffer = tail.pop() || '';
+      for (const line of tail) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          scanUsage(JSON.parse(data));
+        } catch {
+          // Ignore keepalives and malformed provider-specific event lines.
+        }
+      }
       continue;
     }
 
@@ -838,6 +880,7 @@ async function attemptStream(candidate, body, res, clientSignal) {
       if (!data || data === '[DONE]') continue;
       try {
         const payload = JSON.parse(data);
+        scanUsage(payload);
         const finish = payload?.choices?.[0]?.finish_reason;
         if (finish) finishReason = finish;
         if (usefulDelta(payload)) {
@@ -863,7 +906,7 @@ async function attemptStream(candidate, body, res, clientSignal) {
   if (committed) {
     cleanup();
     res.end();
-    return { ok: true, candidate };
+    return { ok: true, candidate, usage: streamUsage };
   }
   cleanup();
   return {
@@ -977,6 +1020,13 @@ async function handleChat(req, res) {
         model: candidate.model,
         selectedAt: new Date().toISOString(),
       });
+      recordUsage({
+        route: requestedModel,
+        provider: candidate.provider,
+        model: candidate.model,
+        usage: body.stream ? result.usage : result.payload?.usage,
+        streaming: Boolean(body.stream),
+      });
       if (!body.stream) {
         log(`selected ${candidateKey(candidate)}`);
         return sendJson(res, 200, result.payload, {
@@ -1060,6 +1110,28 @@ async function handler(req, res) {
       object: 'list',
       data: [...routeModels, ...listed.models, ...catalogModels],
     });
+  }
+  if (req.method === 'GET' && (url.pathname === '/v1/usage' || url.pathname === '/v1/usage/summary')) {
+    if (!usageStore) {
+      return sendJson(res, 503, {
+        error: {
+          message: 'Usage log is disabled (config.usage.enabled=false or SQLite unavailable)',
+          type: 'usage_log_disabled',
+        },
+      });
+    }
+    const filters = {
+      since: url.searchParams.get('since') || '',
+      provider: url.searchParams.get('provider') || '',
+      model: url.searchParams.get('model') || '',
+      route: url.searchParams.get('route') || '',
+      limit: url.searchParams.get('limit') || '',
+      offset: url.searchParams.get('offset') || '',
+    };
+    if (url.pathname === '/v1/usage/summary') {
+      return sendJson(res, 200, usageStore.summary(filters));
+    }
+    return sendJson(res, 200, usageStore.list(filters));
   }
   if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
     return handleChat(req, res);

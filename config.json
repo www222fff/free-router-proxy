@@ -51,6 +51,20 @@
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite"
       ]
+    },
+    "nvidia-nim": {
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "keyEnv": "NVIDIA_NIM_API_KEY",
+      "freeModels": [
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "nvidia/llama-3.1-nemotron-70b-instruct",
+        "moonshotai/kimi-k3",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "google/gemma-4-31b-it"
+      ]
     }
   },
   "discovery": {
@@ -134,7 +148,39 @@
       "nvidia/nemotron-3-super-120b-a12b:free",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "dots-studio/dots-3-note-preview:free",
-      "liquid/lfm-2.5-2.6b:free"
+      "liquid/lfm-2.5-2.6b:free",
+      {
+        "provider": "nvidia-nim",
+        "model": "nvidia/nemotron-3-super-120b-a12b"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "nvidia/nemotron-3.5-lightning-30b-a3b"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "nvidia/llama-3.1-nemotron-70b-instruct"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "moonshotai/kimi-k3"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "deepseek-ai/deepseek-v4-flash-0731"
+      },
+      {
+        "provider": "nvidia-nim",
+        "model": "google/gemma-4-31b-it"
+      }
     ]
   }
 }
